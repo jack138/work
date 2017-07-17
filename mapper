@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.huawei.gdp.dao.PageAccessMiningDao">
+
+
+<select id="getPageTransitions" resultType="com.huawei.gdp.dto.PageTransitionsDto" timeout="60">
+  SELECT 
+     t5.productId,
+     t5.curPageId,
+     t5.curPageIndex,
+     t5.curPageName,
+     t5.curPageUrl,
+     t5.curPagePvAll_r curPagePvAll,
+     t5.curPageUvAll_r curPageUvAll,
+     t5.nextPageId,
+     t5.nextPageIndex,
+     t5.nextPageName,
+     t5.nextPageUrl,
+     t5.nextPagePvInFlow_r nextPagePvInFlow,
+     t5.nextPageUvInFlow_r nextPageUvInFlow,
+     TRUNCATE(ROUND( t5.nextPagePvInFlow_r/t5.curPagePvAll_r,4)*100,2) pageTransformRate,
+     TRUNCATE(ROUND( t5.nextPageUvInFlow_r/t5.curPageUvAll_r,4)*100,2) pageUvTransformRate
+
+FROM
+(SELECT
+     t0.productId,
+     t0.curPageId,
+     t0.curPageIndex,
+     t0.curPageName,
+     t0.curPageUrl,
+     vpp.pvAll  AS curPagePvAll_r,
+     vpp.uvAll AS curPageUvAll_r,
+     
+     t0.nextPageId,
+     t0.nextPageIndex,
+     t0.nextPageName,
+     t0.nextPageUrl,
+     sum(t4.nextPagePv) AS nextPagePvInFlow_r,
+     sum(t4.nextPageUv) As nextPageUvInFlow_r
+     
+     
+FROM
+     (
+         SELECT
+             t1.productId,
+             t1.curPageId,
+             t2.pagename AS curPageName,
+             t2.matchingUrl AS curPageUrl,
+             t2.`index` AS curPageIndex,
+
+             t1.nextPageId,
+             t3.pageName AS nextPageName,
+             t3.matchingUrl AS nextPageUrl,
+             t3.`index` AS nextPageIndex
+         FROM
+             m_page_relation t1
+         INNER JOIN m_page_url t2 ON t1.productid = t2.productid
+         AND t1.curPageId = t2.pageid
+         AND t1.productid = #{productId}
+         AND t1.nextPageId is not null
+         LEFT JOIN m_page_url t3 ON t1.productid = t3.productId
+         AND t1.nextPageId = t3.pageId
+         AND t1.productid = #{productId}
+     ) t0
+LEFT JOIN v_page_transform t4 ON t0.productid = t4.productId
+AND t0.curPageId = t4.curPageId
+AND t0.curpageindex = t4.curPageIndex
+AND t0.nextPageId = t4.nextPageId
+AND t0.nextpageindex = t4.nextPageIndex
+AND t4.productid = #{productId}
+AND t4.`date` <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+AND t4.`date` <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+
+LEFT JOIN (SELECT
+                    productId,pageId,sum(pvAll) as pvAll,sum(uvAll) as uvAll,pageIndex
+          FROM
+                    v_page_pv
+          WHERE
+          date <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+          AND date <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+          GROUP BY productId,pageId,pageIndex) as vpp
+on vpp.productId=t0.productId
+and vpp.pageId=t0.curPageId
+and vpp.pageIndex=t0.curpageindex
+
+GROUP BY
+     productid,
+     curPageId,
+     curPageIndex,
+     nextPageId,
+     nextPageIndex
+)t5
+</select>
+
+
+
+<select id="getPagePVData" resultType="com.huawei.gdp.dto.PagePVDetailDto" timeout="60">
+SELECT
+    t5.productId,
+        t5.pageId_pv pageId, 
+        t5.pageName,
+        t5.pageUrl,
+        t5.pageIndex,
+        t5.pvAll_r pvAll,
+        t5.pvInFlow_r pvInFlow,
+        t5.pvOutFlow_r pvOutFlow,
+        t5.uvAll_r uvAll,
+        t5.uvInFlow_r uvInFlow,
+        t5.uvOutFlow_r uvOutFlow,
+        TRUNCATE(ROUND( t5.pvAll_r/t5.uvAll_r,4)*100,2) pvRatioUv
+FROM
+(SELECT
+    t0.productId,
+        t0.pageId_pv ,
+        t0.pageName,
+        t0.pageUrl,
+        t0.pageIndex,
+        sum(t3.pvAll) pvAll_r,
+        sum(t3.pvInFlow) pvInFlow_r,
+        sum(t3.pvOutFlow) pvOutFlow_r,
+        sum(t3.uvAll) uvAll_r,
+        sum(t3.uvInFlow) uvInFlow_r,
+        sum(t3.uvOutFlow) uvOutFlow_r
+        
+from
+(SELECT
+             t1.productId,
+             t1.curpageId AS pageId_pv,
+             t2.pagename AS pageName,
+             t2.matchingUrl AS pageUrl,
+             t2.`index` AS pageIndex
+         FROM
+         m_page_relation t1
+         INNER JOIN m_page_url t2 ON t1.productid = t2.productid
+         AND t1.curpageid = t2.pageid
+         AND t1.productid = #{productId}
+         group  by pageId_pv,pageUrl) t0
+
+left JOIN v_page_pv t3 ON t0.productId = t3.productId
+AND t0.pageId_pv = t3.PageId
+AND t0.pageIndex = t3.PageIndex
+AND t3.productid = #{productId}
+AND t3.`date` <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+AND t3.`date` <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+
+GROUP BY productId,pageId_pv,pageIndex
+)t5
+</select>
+
+
+<select id="getPVAllDetailData" resultType="com.huawei.gdp.dto.PvAllDetailDto" timeout="60">
+SELECT
+     t5.productId,
+     t5.curPageId,
+     t5.pageName,
+     t5.pageUrl,
+     t5.boforePageIndex,
+     t5.nextPageId,
+     t5.nextPageIndex,
+     t5.curPV,
+     t5.beforePv,
+     t5.pvAll,
+     TRUNCATE(ROUND( t5.curPV/t5.pvAll,4)*100,2) pvPer,
+     TRUNCATE(ROUND( t5.curPV/t5.beforePv,4)*100,2) pageTransformRate,
+     t5.curUv,
+     t5.beforeUv,
+     t5.uvAll,
+     TRUNCATE(ROUND( t5.curUv/t5.uvAll,4)*100,2) uvPer,
+     TRUNCATE(ROUND( t5.curUV/t5.beforeUv,4)*100,2) uvTransformRate
+from
+(
+SELECT 
+     t4.productId,
+     t4.curPageId,
+     t4.pagename AS pageName,
+     t4.matchingUrl AS pageUrl,
+     t4.curPageIndex boforePageIndex,
+     t4.nextPageId,
+     t4.nextPageIndex,
+     t4.curPV,
+     vpp.boforePvAll beforePv,
+     vpp.beforeUvAll beforeUv,
+     vpp2.curPvAll pvAll,
+     vpp2.uvAll uvAll,
+     t4.curUv
+     
+     
+FROM
+( SELECT
+    vpt.productId,
+    vpt.curPageId,
+    vpt.curPageIndex,
+    vpt.nextPageId,
+    vpt.nextPageIndex,
+    
+    
+    
+  t1.pageName,
+  t1.matchingUrl,
+  sum(nextPagePv) curPV,
+  sum(nextPageUv) curUv
+  
+FROM
+   v_page_transform vpt
+   INNER JOIN m_page_url t1 
+         ON t1.productid = vpt.productid
+         AND t1.pageid = vpt.curPageId 
+         AND t1.`index` = vpt.curPageIndex
+         and vpt.nextPageId = #{pageId}
+         and vpt.productid = #{productId}
+         AND vpt.`date` <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+         AND vpt.`date` <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+GROUP BY
+   vpt.productId,
+   vpt.curPageId,
+   vpt.curPageIndex,
+   vpt.nextPageId,
+   vpt.nextPageIndex
+)t4
+ LEFT JOIN (SELECT
+           productId,pageId,sum(pvAll) as boforePvAll,pageIndex,sum(uvAll) as beforeUvAll
+           FROM
+           v_page_pv
+           WHERE
+          date <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+          AND date <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+           GROUP BY productId,pageId,pageIndex) as vpp
+                     on vpp.productId=t4.productId
+                     and vpp.pageId=t4.curPageId
+                     and vpp.pageIndex=t4.curPageIndex
+           and vpp.productId = #{productId}
+
+LEFT JOIN (SELECT
+           productId,pageId,sum(pvAll) as curPvAll,pageIndex,sum(uvAll) as uvAll
+           FROM
+           v_page_pv
+           WHERE
+          date <![CDATA[ >= ]]> str_to_date(#{dateFrom}, '%Y/%m/%d')
+          AND date <![CDATA[ <= ]]> str_to_date(#{dateTo}, '%Y/%m/%d') 
+           GROUP BY productId,pageId,pageIndex) as vpp2
+             on vpp2.productId=t4.productId
+             and vpp2.pageId=t4.nextPageId
+             and vpp2.pageIndex=t4.nextPageIndex
+           and vpp2.productId = #{productId}
+)t5
+</select>
+
+
+</mapper>
